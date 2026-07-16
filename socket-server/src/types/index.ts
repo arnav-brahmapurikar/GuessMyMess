@@ -18,6 +18,7 @@ export type Player = {
     points : number;
     hasDrawn : boolean;
     hasGuessed : boolean;
+    pointsThisTurn: number;
 }
 
 export type Room = {
