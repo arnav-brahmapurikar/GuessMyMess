@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Redo2, Undo2 } from "lucide-react";
 import { Socket } from "socket.io-client";
 
-export default function DrawingCanvas({socket, roomId , color ,
- width,
- tool} : {
-  socket : Socket, 
-  color : string,
- width: number,
- roomId : string ,
- tool: "pen" | "eraser" }) {
+export default function DrawingCanvas({socket, roomId, color, width, tool, isDrawer} : {
+    socket: Socket, 
+    color: string,
+    width: number,
+    roomId: string,
+    tool: "pen" | "eraser",
+    isDrawer: boolean // Add this!
+}) {
 
   const strokes = useRef<Stroke[]>([]);
   const UndoStrokes = useRef<Stroke[]>([]);
@@ -226,7 +226,7 @@ function updateHistoryState(){
   function startDrawing(
     e:React.MouseEvent
   ){
-
+    if (!isDrawer) return;
     drawing.current=true;
 
     lastPoint.current =
@@ -502,117 +502,35 @@ function redo(){
 }
 
   return (
-     <div
-        className="
-        relative
-        h-full
-        w-full
-        "
-    >
+        <div className="relative h-full w-full">
+            <canvas
+                ref={canvasRef}
+                className="w-full h-full bg-white rounded-2xl"
+                style={{
+                    // 2. Only show the custom brush cursor if they are drawing
+                    cursor: isDrawer ? getCursor(width, color, tool) : "default"
+                }}
+                // 3. Gate the mouse events! If not drawer, pass undefined.
+                onMouseDown={isDrawer ? startDrawing : undefined}
+                onMouseMove={isDrawer ? draw : undefined}
+                onMouseUp={isDrawer ? stopDrawing : undefined}
+                onMouseLeave={isDrawer ? stopDrawing : undefined}
+            />
 
-        <canvas
-
-            style={{
-                cursor: getCursor(
-                    width,
-                    color,
-                    tool
-                )
-            }}
-
-            ref={canvasRef}
-
-            className="
-            w-full
-            h-full
-            bg-white
-            rounded-2xl
-            "
-
-            onMouseDown={startDrawing}
-
-            onMouseMove={draw}
-
-            onMouseUp={stopDrawing}
-
-            onMouseLeave={stopDrawing}
-
-        />
-
-
-
-        {/* Undo Button */}
-
-        <Button
-    
-                onClick={undo}
-    
-                disabled={!historyState.canUndo}
-    
-                size="icon"
-    
-                variant="secondary"
-    
-                className="
-                absolute
-                top-4
-                right-14
-    
-                rounded-full
-    
-                bg-white/80
-                backdrop-blur-md
-    
-                shadow-lg
-    
-                hover:scale-110
-                transition
-                "
-    
-            >
-    
-                <Undo2
-                    size={18}
-                />
-    
-            </Button>
-             <Button
-    
-                onClick={redo}
-    
-                disabled={!historyState.canRedo}
-    
-                size="icon"
-    
-                variant="secondary"
-    
-                className="
-                absolute
-                top-4
-                right-4
-    
-                rounded-full
-    
-                bg-white/80
-                backdrop-blur-md
-    
-                shadow-lg
-    
-                hover:scale-110
-                transition
-                "
-    
-            >
-    
-                <Redo2
-                    size={18}
-                />
-    
-            </Button>
-
-
-    </div>
-  );
+            {/* 4. Hide Undo/Redo buttons for guessers */}
+            {isDrawer && (
+                <>
+                    <Button onClick={undo} disabled={!historyState.canUndo} /* ... classes ... */>
+                        <Undo2 size={18} />
+                    </Button>
+                    
+                    <Button onClick={redo} disabled={!historyState.canRedo} /* ... classes ... */>
+                        <Redo2 size={18} />
+                    </Button>
+                </>
+            )}
+        </div>
+    );
 }
 
 

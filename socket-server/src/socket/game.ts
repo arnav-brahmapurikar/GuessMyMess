@@ -3,6 +3,21 @@ import type { DefaultEventsMap } from "socket.io";
 import type { Room } from "../types/index.js";
 
 // ==========================================
+// DTO HELPER: STRIPS CIRCULAR NODE OBJECTS 
+// ==========================================
+export function getPublicRoom(room: Room) {
+    // 1. Strip out the dangerous activeTimer
+    const { activeTimer, ...publicRoom } = room;
+
+    // 2. If the game is in the drawing phase, mask the word
+    if (publicRoom.gameState === "drawing" && publicRoom.correctWord) {
+        publicRoom.correctWord = publicRoom.correctWord.replace(/[a-zA-Z]/g, "_ ");
+    }
+
+    return publicRoom;
+}
+
+// ==========================================
 // CORE GAME LOOP HELPERS
 // ==========================================
 
@@ -27,17 +42,14 @@ export function startDrawingPhase(
 
     const drawer = room.players.find(p => !p.hasDrawn);
 
-    // 3. DTO Pattern: Mask the word for the public payload
-    const maskedWord = word.replace(/[a-zA-Z]/g, "_ ");
-    const publicRoomState = { ...room, correctWord: maskedWord };
-
-    // 4. Broadcast state securely
-    io.to(roomId).emit("room:state", publicRoomState);
+    // 3. Broadcast state securely (using the helper!)
+    io.to(roomId).emit("room:state", getPublicRoom(room));
+    
     if (drawer) {
         io.to(drawer.id).emit("game:you-are-drawing", word);
     }
 
-    // 5. Start the main Drawing Timer (e.g., 80 seconds)
+    // 4. Start the main Drawing Timer
     const roundDurationMs = (room.timer) * 1000;
     
     room.activeTimer = setTimeout(() => {
@@ -45,7 +57,8 @@ export function startDrawingPhase(
         if (drawer) drawer.hasDrawn = true;
         room.gameState = "results";
 
-        io.to(roomId).emit("room:state")
+        // Unmask the word for the results screen
+        io.to(roomId).emit("room:state", getPublicRoom(room));
 
         // Wait 5 seconds on the results screen, then start the next turn
         room.activeTimer = setTimeout(() => {
@@ -66,37 +79,46 @@ export function startNextTurn(
     // 1. Find who is drawing next
     let drawer = room.players.find(p => p.hasDrawn === false);
     
-    room.players.forEach( p => {p.points += p.pointsThisTurn; p.pointsThisTurn = 0 ;})
+    room.players.forEach(p => { p.points += p.pointsThisTurn; p.pointsThisTurn = 0; });
 
     // 2. If everyone has drawn, increment round
     if (!drawer) {
-        startNextRound(io , rooms , roomId);
+        startNextRound(io, rooms, roomId);
         return;
     }
 
     // 3. Reset everyone's guessing status for this turn
     room.players.forEach(p => p.hasGuessed = false);
+    
+    // Clear canvas state securely
+    room.strokes = [];
+    room.undoStrokes = [];
+    io.to(roomId).emit("canvas:state", { strokes: [], undoStrokes: [] });
 
-    // --- PHASE 1: Seperate message for drawer and non-drawers ---
-    room.gameState = "choosing"
-    io.to(roomId).emit("room:state", room);
+    // --- PHASE 1: Separate message for drawer and non-drawers ---
+    room.gameState = "choosing";
+    io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
+    
     const shuffledPool = wordPool.sort(() => 0.5 - Math.random());
     const selectedChoices = shuffledPool.slice(0, 3);
+    
     io.to(roomId).emit("system:message", {
         type: "info",
         message: `${drawer.name} is choosing a word...`
     });
+    
     if (room.activeTimer) clearTimeout(room.activeTimer);
-    const drawerSocket = io.sockets.sockets.get(drawer.id);
-    if (drawerSocket) {
-        drawerSocket.emit("game:choose-word", selectedChoices)
-        room.activeTimer = setTimeout(()=> {
-            room.gameState = "drawing"
-            const forcedWord = selectedChoices[Math.floor(Math.random()*3)];
-            startDrawingPhase(io, rooms, roomId, forcedWord!);
-        },10000)
-    }
+    
+    setTimeout(() => {
+        io.to(drawer.id).emit("game:choose-word", selectedChoices);
+    }, 500);
 
+    // 2. Start the 10-second fallback timer as normal
+    room.activeTimer = setTimeout(() => {
+        room.gameState = "drawing";
+        const forcedWord = selectedChoices[Math.floor(Math.random() * 3)];
+        startDrawingPhase(io, rooms, roomId, forcedWord!);
+    }, 10000);
 }
 
 export function startNextRound(
@@ -107,25 +129,24 @@ export function startNextRound(
     const room = rooms.get(roomId);
     if (!room) return;
 
-    // 1. Find who is drawing next
-   
-        room.currentRound = (room.currentRound ) + 1;
-        
-        // Check if the game is completely over
-        if (room.currentRound > (room.maxRounds )) {
-            room.gameState = "results"; // Or a dedicated "game-over" state
-            io.to(roomId).emit("room:state", room);
-            io.to(roomId).emit("system:message", { type: "info", message: "Game Over! Thanks for playing." });
-            return;
-        }
-
-        // Reset draw status for the new round
-    room.players.forEach(p => {p.hasDrawn = false });
+    room.currentRound = room.currentRound + 1;
     
-    room.gameState = "round-start"
-    io.to(roomId).emit("room:state" , room)
+    // Check if the game is completely over
+    if (room.currentRound > room.maxRounds) {
+        room.gameState = "results";
+        io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
+        io.to(roomId).emit("system:message", { type: "info", message: "Game Over! Thanks for playing." });
+        return;
+    }
+
+    // Reset draw status for the new round
+    room.players.forEach(p => { p.hasDrawn = false; });
+    
+    room.gameState = "round-start";
+    io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
+    
     room.activeTimer = setTimeout(() => {
-        startNextTurn(io , rooms , roomId)
+        startNextTurn(io, rooms, roomId);
     }, 5000);
 }
 
@@ -143,7 +164,7 @@ export function gameHandler(
     socket.on("game:start", (roomId) => {
         const room = rooms.get(roomId);
         if (!room) return;
-        if (room.hostId !== socket.id) return; // Only host can start the game
+        if (room.hostId !== socket.id) return; 
         
         room.currentRound = 0;
         startNextRound(io, rooms, roomId);
@@ -154,7 +175,6 @@ export function gameHandler(
         const room = rooms.get(roomId);
         if (!room) return;
         
-        // Ensure they can't force a word selection if it's not the choosing phase
         if (room.gameState !== "choosing") return;
         startDrawingPhase(io, rooms, roomId, word);
     });
@@ -172,11 +192,10 @@ export function gameHandler(
         const actualWord = room.correctWord?.toLowerCase() || "";
 
         if (isDrawingPhase) {
-            // 1. SECRET CHAT: If they already guessed it, only other guessers see it
+            // 1. SECRET CHAT
             if (player.hasGuessed) {
                 const guessedPlayers = room.players.filter(p => p.hasGuessed);
                 
-                // Send as a special chat message so the frontend can style it uniquely
                 guessedPlayers.forEach(p => {
                     io.to(p.id).emit("chat:message", {
                         id: Math.random().toString(36).substring(7),
@@ -185,17 +204,17 @@ export function gameHandler(
                         sender: player.name
                     });
                 });
-                return; // STOP EXECUTION HERE
+                return; 
             }
             
             // 2. CORRECT GUESS
             else if (guess === actualWord) {
                 const currentDrawer = room.players.find(p => !p.hasDrawn);
-                if (currentDrawer && currentDrawer.id === socket.id) return; // Drawer can't guess
+                if (currentDrawer && currentDrawer.id === socket.id) return; 
 
                 player.hasGuessed = true;
 
-                // Apply points logic
+                // Points logic
                 const timeElapsed = Date.now() - room.roundStart!;
                 const roundDurationMs = room.timer * 1000;
                 const timeLeftRatio = Math.max(0, roundDurationMs - timeElapsed) / roundDurationMs;
@@ -210,7 +229,7 @@ export function gameHandler(
                     message: `✅ ${player.name} guessed the word!`
                 });
 
-                // Check if EVERYONE (except drawer) has guessed it
+                // Check if EVERYONE has guessed it
                 const allGuessed = room.players.every(p => 
                     p.hasGuessed || (currentDrawer && p.id === currentDrawer.id)
                 );
@@ -220,17 +239,17 @@ export function gameHandler(
                     if (currentDrawer) currentDrawer.hasDrawn = true;
                     
                     room.gameState = "results";
-                    io.to(roomId).emit("room:state", room);
+                    io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
 
                     room.activeTimer = setTimeout(() => {
                         startNextTurn(io, rooms, roomId);
                     }, 5000);
                 }
-                return; // STOP EXECUTION HERE - prevent correct word from appearing in chat
+                return; 
             }
         }
 
-        // 3. NORMAL CHAT: If it's a wrong guess, or it's just lobby chatter, send to everyone
+        // 3. NORMAL CHAT
         io.to(roomId).emit("chat:message", {
             id: Math.random().toString(36).substring(7),
             type: "chat",

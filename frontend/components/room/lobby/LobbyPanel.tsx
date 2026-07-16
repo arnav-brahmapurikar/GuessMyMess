@@ -40,7 +40,7 @@ export default function LobbyPanel({
     
     const handleStart = () => {
         if (isHost) {
-            socket.emit("lobby:start", roomId);
+            socket.emit("game:start", roomId);
         }
     };
 

@@ -29,7 +29,8 @@ export function roomHandler(
         name,
         points: 0,
         hasDrawn: false,
-        hasGuessed: false
+        hasGuessed: false,
+        pointsThisTurn : 0
     }],
     maxRounds: rounds,
     currentRound: 0,
@@ -67,7 +68,8 @@ socket.emit(
                     name,
                     points: 0,
                     hasDrawn: false,
-                    hasGuessed: false
+                    hasGuessed: false,
+                    pointsThisTurn : 0,
                 };
 
                 socket.data.roomId = roomId
@@ -104,7 +106,7 @@ socket.emit(
     if (!roomId) return;
 
     const room = rooms.get(roomId);
-
+    
     if (!room) return;
 
     const leavingPlayer = room.players.find(
@@ -119,6 +121,9 @@ socket.emit(
 
     // Delete empty room
     if (room.players.length === 0) {
+        if (room.activeTimer) {
+        clearTimeout(room.activeTimer);
+        }
         rooms.delete(roomId);
         return;
     }

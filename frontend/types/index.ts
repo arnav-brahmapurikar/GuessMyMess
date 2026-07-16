@@ -18,12 +18,13 @@ export type Player = {
     points : number;
     hasDrawn : boolean;
     hasGuessed : boolean;
+    pointsThisTurn : number;
 }
 
 export type Room = {
     id : string ,
     hostId : string,
-    gameState: "lobby" | "choosing" | "drawing" | "results",
+    gameState: "lobby" | "choosing" | "drawing" | "results" | "round-start" ,
     strokes :Stroke[],
     undoStrokes : Stroke[]
     players : Player[]

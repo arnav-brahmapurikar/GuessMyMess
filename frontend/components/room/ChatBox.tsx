@@ -12,10 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Socket } from "socket.io-client";
 
-// Define the shape of our messages
+// 1. Expand the types to match the backend!
 type ChatMessage = {
     id: string;
-    type: "system" | "chat"; // We can expand this later for guesses
+    type: "system" | "chat" | "success" | "info" | "secret"; 
     text: string;
     sender?: string;
 };
@@ -29,27 +29,35 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
     useEffect(() => {
         if (!socket) return;
 
-        // Handler for system messages (joins, leaves, kicks)
-        const handleSystemMessage = (data: { type: string; message: string }) => {
+        // Handler for System Events (Start, Guessed it, Info)
+        const handleSystemMessage = (data: { type: any; message: string }) => {
             setMessages((prev) => [
                 ...prev,
                 {
-                    id: Math.random().toString(36).substring(7), // Quick unique ID
-                    type: "system",
+                    id: Math.random().toString(36).substring(7),
+                    type: data.type || "system",
                     text: data.message,
                 },
             ]);
         };
 
-        socket.on("system:message", handleSystemMessage);
+        // Handler for Normal & Secret Chats
+        const handleChatMessage = (data: ChatMessage) => {
+            setMessages((prev) => [...prev, data]);
+        };
 
-        // Cleanup listener on unmount to prevent duplicate messages
+        // Attach listeners
+        socket.on("system:message", handleSystemMessage);
+        socket.on("chat:message", handleChatMessage);
+
+        // Cleanup
         return () => {
             socket.off("system:message", handleSystemMessage);
+            socket.off("chat:message", handleChatMessage);
         };
     }, [socket]);
 
-    // Auto-scroll to bottom whenever messages update
+    // Auto-scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -60,17 +68,10 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
         e.preventDefault();
         if (!inputValue.trim()) return;
 
-        // For now, just add it locally. 
-        // Later, we will emit this to the server so everyone sees it!
-        setMessages((prev) => [
-            ...prev,
-            {
-                id: Math.random().toString(36).substring(7),
-                type: "chat",
-                text: inputValue,
-                sender: "You", // Hardcoded for now
-            },
-        ]);
+        // FIXED: Pass the room ID along with the message!
+        socket.emit("chat:send", room, inputValue.trim());
+        
+        // FIXED: Clear the input after sending
         setInputValue("");
     };
 
@@ -92,25 +93,33 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
                     </div>
                 )}
 
-                {messages.map((msg) => (
-                    <div
-                        key={msg.id}
-                        className={`text-sm font-medium ${
-                            msg.type === "system"
-                                ? "text-green-600 italic bg-green-50 p-1.5 rounded-md" // Styling for system alerts
-                                : "text-gray-800"
-                        }`}
-                    >
-                        {msg.type === "system" ? (
-                            `📢 ${msg.text}`
-                        ) : (
-                            <span>
-                                <span className="font-bold">{msg.sender}: </span>
-                                {msg.text}
-                            </span>
-                        )}
-                    </div>
-                ))}
+                {messages.map((msg) => {
+                    // Dynamic styling based on the message type
+                    let styleClass = "text-gray-800"; // Normal chat
+                    let prefix = "";
+
+                    if (msg.type === "success") {
+                        styleClass = "text-green-700 bg-green-100 font-bold p-1.5 rounded-md w-full block";
+                    } else if (msg.type === "secret") {
+                        styleClass = "text-yellow-700 bg-yellow-50 border border-yellow-200 italic p-1.5 rounded-md w-full block";
+                        prefix = "🤫 [Secret] ";
+                    } else if (msg.type === "info" || msg.type === "system") {
+                        styleClass = "text-blue-600 bg-blue-50 italic p-1.5 rounded-md w-full block text-center text-xs font-semibold";
+                    }
+
+                    return (
+                        <div key={msg.id} className={`text-sm ${styleClass}`}>
+                            {msg.sender ? (
+                                <span>
+                                    <span className="font-bold">{prefix}{msg.sender}: </span>
+                                    {msg.text}
+                                </span>
+                            ) : (
+                                <span>{msg.text}</span>
+                            )}
+                        </div>
+                    );
+                })}
             </CardContent>
 
             <CardFooter className="p-3 border-t bg-gray-50">

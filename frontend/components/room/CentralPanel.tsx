@@ -7,6 +7,8 @@ import LobbyPanel from "./lobby/LobbyPanel";
 import ChoosingPanel from "./ChoosingPanel";
 import GamePanel from "./GamePanel";
 import ResultsPanel from "./ResultsPanel";
+// Add this import
+import RoundStartPanel from "./RoundStartPanel"; 
 
 export default function CenterPanel({
     socket,
@@ -19,44 +21,22 @@ export default function CenterPanel({
 }) {
 
     switch (room.gameState) {
-
         case "lobby":
-            return (
-                <LobbyPanel
-                    socket={socket}
-                    room={room}
-                    roomId={roomId}
-                />
-            );
+            return <LobbyPanel socket={socket} room={room} roomId={roomId} />;
+
+        case "round-start":
+            return <RoundStartPanel room={room} />;
 
         case "choosing":
-            return (
-                <ChoosingPanel
-                    socket={socket}
-                    room={room}
-                    roomId={roomId}
-                />
-            );
+            return <ChoosingPanel socket={socket} room={room} roomId={roomId} />;
 
         case "drawing":
-            return (
-                <GamePanel
-                    socket={socket}
-                    room={room}
-                    roomId={roomId}
-                />
-            );
+            return <GamePanel socket={socket} room={room} roomId={roomId} />;
 
         case "results":
-            return (
-                <ResultsPanel
-                    socket={socket}
-                    room={room}
-                    roomId={roomId}
-                />
-            );
+            return <ResultsPanel socket={socket} room={room} roomId={roomId} />;
 
         default:
-            return null;
+            return <div className="flex-1 flex items-center justify-center">Loading...</div>;
     }
 }
