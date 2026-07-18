@@ -100,7 +100,7 @@ export default function TopBar({
 
                         <Badge>
 
-                            Round {room.currentRound + 1}/{room.maxRounds}
+                            { room.maxRounds + 1=== room.currentRound ? "Rounds Finished" : `Round ${room.currentRound }/ ${room.maxRounds}`}
 
                         </Badge>
 

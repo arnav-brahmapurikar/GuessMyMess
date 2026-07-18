@@ -52,6 +52,8 @@ export default function RoomPage({
 
 
     return () => {
+      // console.log("done")
+      // socket.emit("room:leave",id)
       socket.off(
         "room:state",
         handleRoomState
@@ -59,6 +61,8 @@ export default function RoomPage({
     };
 
   }, [id , socket]);
+
+
 
   return (
     <main className="h-screen flex flex-col">

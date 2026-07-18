@@ -256,5 +256,121 @@ export function gameHandler(
             text: message,
             sender: player.name
         });
+
+
     });
+
+    // 1.5 The manual reset from the Host after a game ends
+    socket.on("game:play-again", (roomId) => {
+        const room = rooms.get(roomId);
+        if (!room) return;
+        if (room.hostId !== socket.id) return; // Only host can trigger this
+        if (room.gameState !== "results") return; // Only works on the game over screen
+
+        // Clear any lingering timers
+        if (room.activeTimer) clearTimeout(room.activeTimer);
+
+        // Reset the room back to a clean slate
+        room.gameState = "lobby";
+        room.currentRound = 0;
+        room.correctWord = "";
+        room.strokes = [];
+        room.undoStrokes = [];
+        
+        // Wipe all player scores and statuses
+        room.players.forEach(p => {
+            p.points = 0;
+            p.pointsThisTurn = 0;
+            p.hasDrawn = false;
+            p.hasGuessed = false;
+        });
+
+        // Broadcast the reset room
+        io.to(roomId).emit("room:state", getPublicRoom(room));
+        io.to(roomId).emit("system:message", { 
+            type: "info", 
+            message: "The host has returned the room to the lobby." 
+        });
+    });
+
+    socket.on("room:leave", (roomId) => {
+    handlePlayerLeave(io, socket, rooms, roomId);
+    });
+}
+
+export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string, Room>, roomId: string) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    const playerIndex = room.players.findIndex(p => p.id === socket.id);
+    if (playerIndex === -1) return;
+
+    const player = room.players[playerIndex];
+    if(!player)return ;
+    // FIX: Find the ACTUAL active drawer before doing anything else
+    const currentDrawer = room.players.find(p => !p.hasDrawn);
+    const isActiveDrawer = currentDrawer?.id === socket.id && 
+                           (room.gameState === "drawing" || room.gameState === "choosing");
+
+    // 1. Remove the player
+    room.players.splice(playerIndex, 1);
+    
+    // Optional cleanup depending on your Socket structure
+    socket.data = {}; 
+
+    // 2. If the room is empty, delete it completely to stop memory leaks
+    if (room.players.length === 0) {
+        if (room.activeTimer) clearTimeout(room.activeTimer);
+        rooms.delete(roomId);
+        return;
+    }
+    if(!room.players[0])return;
+    // 3. If the host left, give host status to the next person in line
+    if (room.hostId === socket.id) {
+        room.hostId = room.players[0].id;
+        io.to(roomId).emit("system:message", { type: "info", message: `${room.players[0].name} is the new host.` });
+    }
+
+    io.to(roomId).emit("system:message", { type: "info", message: `${player.name} left the game.` });
+
+    // 4. CRITICAL EDGE CASE: If the drawer left, end the turn immediately!
+    if (isActiveDrawer) {
+        io.to(roomId).emit("system:message", { type: "system", message: `The drawer left! Skipping turn...` });
+        if (room.activeTimer) clearTimeout(room.activeTimer);
+        
+        // Jump straight to the results screen
+        room.gameState = "results";
+        io.to(roomId).emit("room:state", getPublicRoom(room));
+        
+        room.activeTimer = setTimeout(() => {
+            startNextTurn(io, rooms, roomId);
+        }, 5000);
+        return;
+    }
+
+    // 5. SECONDARY EDGE CASE: If a guesser left, and now everyone remaining has guessed it, end the turn!
+    if (room.gameState === "drawing") {
+        // We have to re-evaluate the drawer because the array just changed!
+        const newCurrentDrawer = room.players.find(p => !p.hasDrawn);
+        
+        const allGuessed = room.players.every(p => 
+            p.hasGuessed || (newCurrentDrawer && p.id === newCurrentDrawer.id)
+        );
+        
+        if (allGuessed && room.players.length > 1) {
+            if (room.activeTimer) clearTimeout(room.activeTimer);
+            if (newCurrentDrawer) newCurrentDrawer.hasDrawn = true;
+            
+            room.gameState = "results";
+            io.to(roomId).emit("room:state", getPublicRoom(room));
+
+            room.activeTimer = setTimeout(() => {
+                startNextTurn(io, rooms, roomId);
+            }, 5000);
+            return;
+        }
+    }
+
+    // 6. Normal update for everyone else
+    io.to(roomId).emit("room:state", getPublicRoom(room));
 }

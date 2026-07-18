@@ -2,6 +2,7 @@ import type { Socket } from "socket.io"
 import type { Server } from "socket.io"
 import type { DefaultEventsMap } from "socket.io"
 import type { Room, Stroke } from "../types/index.js"
+import { getPublicRoom, handlePlayerLeave } from "./game.js"
 
 export function roomHandler(
     io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>,
@@ -43,7 +44,7 @@ socket.data.roomId = code
 
 socket.emit(
     "room:state",
-    room
+    getPublicRoom(room)
 );
     })
 
@@ -82,7 +83,7 @@ socket.emit(
                     }
                 )
             }
-            io.to(roomId).emit("room:state", room)
+            io.to(roomId).emit("room:state", getPublicRoom(room))
             
             
 
@@ -90,78 +91,23 @@ socket.emit(
             
             
             // saved for later (when public room )
-            // socket.emit(
-            //     "canvas:state",
-            //     rooms.get(roomId) ?? {}
-            // );
+            socket.emit(
+                "canvas:state",
+                getPublicRoom(roomId)
+            );
 
 
 
         });
 
     socket.on("disconnect", () => {
+        const roomId = socket.data.roomId
+        if(!roomId)return;
 
-    const roomId = socket.data.roomId;
-
-    if (!roomId) return;
-
-    const room = rooms.get(roomId);
+        handlePlayerLeave(io , socket ,rooms, roomId)
+    });
     
-    if (!room) return;
-
-    const leavingPlayer = room.players.find(
-        p => p.id === socket.id
-    );
-
-    if (!leavingPlayer) return;
-
-    room.players = room.players.filter(
-        p => p.id !== socket.id
-    );
-
-    // Delete empty room
-    if (room.players.length === 0) {
-        if (room.activeTimer) {
-        clearTimeout(room.activeTimer);
-        }
-        rooms.delete(roomId);
-        return;
-    }
-
-    
-    // Notify everyone that the player left
-    io.to(roomId).emit(
-        "system:message",
-        {
-            type: "player_left",
-            message: `${leavingPlayer.name} left the game`
-        }
-    );
-    
-    // Transfer host if necessary
-    if (room.hostId === socket.id) {
-        
-        const newHost = room.players[0]!;
-        
-        room.hostId = newHost.id;
-        
-        io.to(roomId).emit(
-            "system:message",
-            {
-                type: "host_changed",
-                message: `${newHost.name} is the new host`
-            }
-        );
-    }
-    
-    
-    io.to(roomId).emit(
-        "room:state",
-        room
-    );
-    // Synchronize room state
-
-});
+   
 
 }
 
@@ -176,3 +122,4 @@ function generateUppercaseAlphanumeric(length: number = 5): string {
 
     return result;
 }
+
