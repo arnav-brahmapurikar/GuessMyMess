@@ -18,7 +18,6 @@ export default function DrawingCanvas({
     const [tool, setTool] = useState<"pen" | "eraser">("pen");
     const [color, setColor] = useState("#000000");
     const [width, setWidth] = useState(5);
-
     const strokes = useRef<Stroke[]>([]);
     const UndoStrokes = useRef<Stroke[]>([]);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -26,6 +25,11 @@ export default function DrawingCanvas({
         canUndo:false,
         canRedo:false
     });
+    const pendingPoints = useRef<Point[]>([]);
+    const throttleTimeout = useRef<NodeJS.Timeout | null>(null);
+    //use queue to distribute drawing to reduce jitterness
+    const renderQueue = useRef<{from: Point, to: Point, stroke: Stroke}[]>([]);
+    const isRendering = useRef(false);
 
     const drawing = useRef(false);
     const currentStroke = useRef<Stroke | null>(null);
@@ -53,13 +57,34 @@ export default function DrawingCanvas({
             applyRedo();
         });
 
-        socket.on("stroke:update", ({strokeId, point}) => {
+        // ✅ NEW: Expecting an array of points
+        socket.on("stroke:update", ({strokeId, points}: {strokeId: string, points: Point[]}) => {
             const stroke = strokes.current.find(s => s.id === strokeId);
             if(!stroke) return;
-            const lastP = stroke.points[stroke.points.length - 1];
-            stroke.points.push(point);
-            drawLine(lastP, point, stroke);
+            
+            let lastP = stroke.points[stroke.points.length - 1];
+            
+            for (const pt of points) {
+                if (!lastP) lastP = pt;
+                
+                // 1. Still save it to our main data array instantly
+                stroke.points.push(pt); 
+                
+                // 2. Instead of drawing it directly, push it to our animation queue!
+                renderQueue.current.push({ from: lastP, to: pt, stroke });
+                
+                lastP = pt; 
+            }
+
+            // 3. Kick off the animation loop if it isn't already running
+            if (!isRendering.current) {
+                isRendering.current = true;
+                requestAnimationFrame(processRenderQueue);
+            }
         });
+
+        //  Explicitly ask for the canvas state now that we are ready to listen!
+        socket.emit("canvas:request-state", roomId);
 
         return () => {
             socket.off("stroke:start");
@@ -97,6 +122,28 @@ export default function DrawingCanvas({
         ctx.lineJoin = "round";
     }, []);
 
+    function processRenderQueue() {
+        if (renderQueue.current.length === 0) {
+            isRendering.current = false;
+            return;
+        }
+
+        // THE MATH: A standard monitor runs at 60 Frames Per Second (~16ms per frame).
+        // Since our data arrives every 50ms, exactly 3 monitor frames will pass between each network update.
+        // By dividing the queue length by 3, we perfectly spread the drawing out across those 3 frames!
+        const pointsToDraw = Math.max(1, Math.ceil(renderQueue.current.length / 3));
+
+        for (let i = 0; i < pointsToDraw; i++) {
+            const op = renderQueue.current.shift();
+            if (op) {
+                drawLine(op.from, op.to, op.stroke);
+            }
+        }
+
+        // Tell the browser to run this again on the next frame
+        requestAnimationFrame(processRenderQueue);
+    }
+
     function updateHistoryState() {
         setHistoryState({
             canUndo: strokes.current.length > 0,
@@ -132,10 +179,27 @@ export default function DrawingCanvas({
         if (!drawing.current) return;
         const ctx = canvasRef.current!.getContext("2d")!;
         if (!ctx) return;
-        const point = getPoint(e);
         
+        const point = getPoint(e);
         currentStroke.current?.points.push(point);
-        socket.emit("stroke:update", { roomId: roomId, strokeId: currentStroke.current?.id, point });
+        pendingPoints.current.push(point); 
+        
+        // If a timer isn't already running, start one!
+        if (!throttleTimeout.current) {
+            throttleTimeout.current = setTimeout(() => {
+                // When 50ms passes, send the batch
+                if (pendingPoints.current.length > 0) {
+                    socket.emit("stroke:update", { 
+                        roomId: roomId, 
+                        strokeId: currentStroke.current?.id, 
+                        points: pendingPoints.current 
+                    });
+                    pendingPoints.current = [];
+                }
+                // Clear the ref so the next mouse movement can start a new timer
+                throttleTimeout.current = null; 
+            }, 50);
+        }
         
         ctx.beginPath();
         ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
@@ -156,6 +220,23 @@ export default function DrawingCanvas({
     function stopDrawing() {
         drawing.current = false;
         if (currentStroke.current) {
+            
+            // 1. Cancel the pending timer if it exists
+            if (throttleTimeout.current) {
+                clearTimeout(throttleTimeout.current);
+                throttleTimeout.current = null;
+            }
+
+            // 2. Flush any leftover points instantly
+            if (pendingPoints.current.length > 0) {
+                socket.emit("stroke:update", { 
+                    roomId: roomId, 
+                    strokeId: currentStroke.current?.id, 
+                    points: pendingPoints.current 
+                });
+                pendingPoints.current = [];
+            }
+            
             strokes.current.push(currentStroke.current);
             updateHistoryState();
             currentStroke.current = null;
@@ -199,6 +280,7 @@ export default function DrawingCanvas({
     }
 
     function redrawCanvas() {
+        renderQueue.current = [];
         const canvas = canvasRef.current;
         if(!canvas) return;
         const ctx = canvas.getContext("2d");

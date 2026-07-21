@@ -76,12 +76,12 @@ export function drawingHandler(
 
     socket.on(
 "stroke:update",
-({roomId, strokeId , point})=>{
+({roomId, strokeId , points})=>{
 
 
     const stroke = rooms.get(roomId)?.strokes.find(s => s.id === strokeId)
     if(stroke){
-        stroke.points.push(point)
+        stroke.points.push(...points)
     }
 
     socket
@@ -90,7 +90,7 @@ export function drawingHandler(
         "stroke:update",
         {
             strokeId,
-            point
+            points
         }
     );
 
@@ -98,7 +98,16 @@ export function drawingHandler(
 });
 
     
-
+socket.on("canvas:request-state", (roomId) => {
+        const room = rooms.get(roomId);
+        if (room) {
+            // Only send it to the specific socket that asked for it
+            socket.emit("canvas:state", {
+                strokes: room.strokes,
+                undoStrokes: room.undoStrokes
+            });
+        }
+    });
 
 
 }

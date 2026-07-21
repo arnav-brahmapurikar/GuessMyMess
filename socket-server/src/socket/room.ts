@@ -48,57 +48,42 @@ socket.emit(
 );
     })
 
-    socket.on(
-        "room:join",
-        (roomId, name) => {
-
+    socket.on("room:join", (roomId, name) => {
+        const room = rooms.get(roomId);
+        if (!room) {
+            socket.emit("join:failed");
+            return;
+        }
             
-            const room = rooms.get(roomId)
-            if (!room) {
-                socket.emit("join:failed");
-                return;
-            }
+        if (!room.players.some(p => p.id === socket.id)) {
+            socket.join(roomId);
+            const player = {
+                id: socket.id,
+                name,
+                points: 0,
+                hasDrawn: false,
+                hasGuessed: false,
+                pointsThisTurn: 0,
+            };
+
+            socket.data.roomId = roomId;
+            room.players.push(player);
             
-            if (room.players.some(p => p.id === socket.id)) {
-                
-            }
-            else {
-                socket.join(roomId);
-                const player = {
-                    id: socket.id,
-                    name,
-                    points: 0,
-                    hasDrawn: false,
-                    hasGuessed: false,
-                    pointsThisTurn : 0,
-                };
-
-                socket.data.roomId = roomId
-                room.players.push(player);
-                io.to(roomId).emit(
-                    "system:message",
-                    {
-                        type: "player_joined",
-                        message: `${name} joined the room`
-                    }
-                )
-            }
-            io.to(roomId).emit("room:state", getPublicRoom(room))
-            
-            
-
-
-            
-            
-            // saved for later (when public room )
-            socket.emit(
-                "canvas:state",
-                getPublicRoom(roomId)
-            );
-
-
-
+            io.to(roomId).emit("system:message", {
+                type: "player_joined",
+                message: `${name} joined the room`
+            });
+        }
+        
+        // 1. Send the general room state to EVERYONE
+        io.to(roomId).emit("room:state", getPublicRoom(room));
+        
+        // 2. Send the exact canvas strokes ONLY to the newcomer!
+        socket.emit("canvas:state", {
+            strokes: room.strokes,
+            undoStrokes: room.undoStrokes
         });
+    });
 
     socket.on("disconnect", () => {
         const roomId = socket.data.roomId

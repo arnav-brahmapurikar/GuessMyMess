@@ -56,7 +56,7 @@ export default function ResultsPanel({
                             <span>{gameEnded ? "Total Score" : "Points Gained"}</span>
                         </div>
                         
-                        <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                        <div className="max-h-75 overflow-y-auto space-y-2 pr-2">
                             {sortedPlayers.map((player, index) => {
                                 const displayScore = gameEnded ? (player.points || 0) : (player.pointsThisTurn || 0);
                                 const gotPoints = displayScore > 0;
