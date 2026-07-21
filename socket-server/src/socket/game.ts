@@ -24,9 +24,9 @@ export function getPublicRoom(room: Room) {
 const wordPool = ["apple", "elephant", "guitar", "mountain", "ocean", "pizza", "astronaut", "castle"];
 
 export function startDrawingPhase(
-    io: Server, 
-    rooms: Map<string, Room>, 
-    roomId: string, 
+    io: Server,
+    rooms: Map<string, Room>,
+    roomId: string,
     word: string
 ) {
     const room = rooms.get(roomId);
@@ -44,14 +44,14 @@ export function startDrawingPhase(
 
     // 3. Broadcast state securely (using the helper!)
     io.to(roomId).emit("room:state", getPublicRoom(room));
-    
+
     if (drawer) {
         io.to(drawer.id).emit("game:you-are-drawing", word);
     }
 
     // 4. Start the main Drawing Timer
     const roundDurationMs = (room.timer) * 1000;
-    
+
     room.activeTimer = setTimeout(() => {
         // --- TIME IS UP ---
         if (drawer) drawer.hasDrawn = true;
@@ -69,8 +69,8 @@ export function startDrawingPhase(
 }
 
 export function startNextTurn(
-    io: Server, 
-    rooms: Map<string, Room>, 
+    io: Server,
+    rooms: Map<string, Room>,
     roomId: string
 ) {
     const room = rooms.get(roomId);
@@ -78,7 +78,7 @@ export function startNextTurn(
 
     // 1. Find who is drawing next
     let drawer = room.players.find(p => p.hasDrawn === false);
-    
+
     room.players.forEach(p => { p.points += p.pointsThisTurn; p.pointsThisTurn = 0; });
 
     // 2. If everyone has drawn, increment round
@@ -89,7 +89,7 @@ export function startNextTurn(
 
     // 3. Reset everyone's guessing status for this turn
     room.players.forEach(p => p.hasGuessed = false);
-    
+
     // Clear canvas state securely
     room.strokes = [];
     room.undoStrokes = [];
@@ -98,17 +98,17 @@ export function startNextTurn(
     // --- PHASE 1: Separate message for drawer and non-drawers ---
     room.gameState = "choosing";
     io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
-    
+
     const shuffledPool = wordPool.sort(() => 0.5 - Math.random());
     const selectedChoices = shuffledPool.slice(0, 3);
-    
+
     io.to(roomId).emit("system:message", {
         type: "info",
         message: `${drawer.name} is choosing a word...`
     });
-    
+
     if (room.activeTimer) clearTimeout(room.activeTimer);
-    
+
     setTimeout(() => {
         io.to(drawer.id).emit("game:choose-word", selectedChoices);
     }, 500);
@@ -122,15 +122,15 @@ export function startNextTurn(
 }
 
 export function startNextRound(
-    io: Server, 
-    rooms: Map<string, Room>, 
+    io: Server,
+    rooms: Map<string, Room>,
     roomId: string
 ) {
     const room = rooms.get(roomId);
     if (!room) return;
 
     room.currentRound = room.currentRound + 1;
-    
+
     // Check if the game is completely over
     if (room.currentRound > room.maxRounds) {
         room.gameState = "results";
@@ -141,10 +141,10 @@ export function startNextRound(
 
     // Reset draw status for the new round
     room.players.forEach(p => { p.hasDrawn = false; });
-    
+
     room.gameState = "round-start";
     io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
-    
+
     room.activeTimer = setTimeout(() => {
         startNextTurn(io, rooms, roomId);
     }, 5000);
@@ -159,13 +159,13 @@ export function gameHandler(
     socket: Socket,
     rooms: Map<string, Room>
 ) {
-    
+
     // 1. The initial trigger from the Lobby Host
     socket.on("game:start", (roomId) => {
         const room = rooms.get(roomId);
         if (!room) return;
-        if (room.hostId !== socket.id) return; 
-        
+        if (room.hostId !== socket.id) return;
+
         room.currentRound = 0;
         startNextRound(io, rooms, roomId);
     });
@@ -174,7 +174,7 @@ export function gameHandler(
     socket.on("game:word-selected", (roomId, word) => {
         const room = rooms.get(roomId);
         if (!room) return;
-        
+
         if (room.gameState !== "choosing") return;
         startDrawingPhase(io, rooms, roomId, word);
     });
@@ -191,61 +191,117 @@ export function gameHandler(
         const guess = message.trim().toLowerCase();
         const actualWord = room.correctWord?.toLowerCase() || "";
 
+        const currentDrawer = room.players.find(p => !p.hasDrawn);
+        const isDrawer = currentDrawer && currentDrawer.id === socket.id;
         if (isDrawingPhase) {
             // 1. SECRET CHAT
-            if (player.hasGuessed) {
-                const guessedPlayers = room.players.filter(p => p.hasGuessed);
-                
-                guessedPlayers.forEach(p => {
+            if (player.hasGuessed || isDrawer) {
+
+                const secretReceivers = room.players.filter(p =>
+                    p.hasGuessed || (currentDrawer && p.id === currentDrawer.id)
+                );
+
+                secretReceivers.forEach(p => {
                     io.to(p.id).emit("chat:message", {
                         id: Math.random().toString(36).substring(7),
-                        type: "secret", 
+                        type: "secret",
                         text: message,
                         sender: player.name
                     });
                 });
-                return; 
+                return;
+
             }
-            
+
             // 2. CORRECT GUESS
+            // 2. CORRECT GUESS
+
             else if (guess === actualWord) {
-                const currentDrawer = room.players.find(p => !p.hasDrawn);
-                if (currentDrawer && currentDrawer.id === socket.id) return; 
 
                 player.hasGuessed = true;
 
                 // Points logic
                 const timeElapsed = Date.now() - room.roundStart!;
+
                 const roundDurationMs = room.timer * 1000;
+
                 const timeLeftRatio = Math.max(0, roundDurationMs - timeElapsed) / roundDurationMs;
 
+
+
                 player.pointsThisTurn = Math.floor((timeLeftRatio * 450) + 50);
+
                 if (currentDrawer) {
+
                     currentDrawer.pointsThisTurn = (currentDrawer.pointsThisTurn || 0) + 50;
+
                 }
-                
+
+
+
                 io.to(roomId).emit("system:message", {
+
                     type: "success",
+
                     message: `✅ ${player.name} guessed the word!`
+
                 });
 
+
+
                 // Check if EVERYONE has guessed it
-                const allGuessed = room.players.every(p => 
+
+                const allGuessed = room.players.every(p =>
+
                     p.hasGuessed || (currentDrawer && p.id === currentDrawer.id)
+
                 );
-                
+
+
+
                 if (allGuessed) {
+
                     if (room.activeTimer) clearTimeout(room.activeTimer);
+
                     if (currentDrawer) currentDrawer.hasDrawn = true;
-                    
+
+
+
                     room.gameState = "results";
+
                     io.to(roomId).emit("room:state", getPublicRoom(room)); // USING HELPER
 
+
+
                     room.activeTimer = setTimeout(() => {
+
                         startNextTurn(io, rooms, roomId);
+
                     }, 5000);
+
                 }
-                return; 
+
+                return;
+
+            }
+
+            // 3. CLOSE GUESS (TYPO DETECTION)
+            else if (actualWord.length > 0) {
+                const distance = getLevenshteinDistance(guess, actualWord);
+
+                // Allow 1 typo for short words, 2 typos for words 5+ letters
+                const isClose = distance === 1 || (actualWord.length >= 5 && distance === 2);
+
+                if (isClose) {
+                    // Send a PRIVATE message ONLY to the sender
+                    socket.emit("system:message", {
+                        type: "warning", // You might want to style "warning" as orange/yellow on your frontend
+                        message: `😲 '${message}' is very close!`
+                    });
+
+                    // RETURN IMMEDIATELY. We do NOT want to broadcast this typo to the room!
+                    return;
+                }
             }
         }
 
@@ -276,7 +332,7 @@ export function gameHandler(
         room.correctWord = "";
         room.strokes = [];
         room.undoStrokes = [];
-        
+
         // Wipe all player scores and statuses
         room.players.forEach(p => {
             p.points = 0;
@@ -287,36 +343,36 @@ export function gameHandler(
 
         // Broadcast the reset room
         io.to(roomId).emit("room:state", getPublicRoom(room));
-        io.to(roomId).emit("system:message", { 
-            type: "info", 
-            message: "The host has returned the room to the lobby." 
+        io.to(roomId).emit("system:message", {
+            type: "info",
+            message: "The host has returned the room to the lobby."
         });
     });
 
     socket.on("room:leave", (roomId) => {
-    handlePlayerLeave(io, socket, rooms, roomId);
+        handlePlayerLeave(io, socket, rooms, roomId);
     });
 }
 
 export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string, Room>, roomId: string) {
     const room = rooms.get(roomId);
     if (!room) return;
-    
+
     const playerIndex = room.players.findIndex(p => p.id === socket.id);
     if (playerIndex === -1) return;
 
     const player = room.players[playerIndex];
-    if(!player)return ;
+    if (!player) return;
     // FIX: Find the ACTUAL active drawer before doing anything else
     const currentDrawer = room.players.find(p => !p.hasDrawn);
-    const isActiveDrawer = currentDrawer?.id === socket.id && 
-                           (room.gameState === "drawing" || room.gameState === "choosing");
+    const isActiveDrawer = currentDrawer?.id === socket.id &&
+        (room.gameState === "drawing" || room.gameState === "choosing");
 
     // 1. Remove the player
     room.players.splice(playerIndex, 1);
-    
+
     // Optional cleanup depending on your Socket structure
-    socket.data = {}; 
+    socket.data = {};
 
     // 2. If the room is empty, delete it completely to stop memory leaks
     if (room.players.length === 0) {
@@ -324,7 +380,7 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
         rooms.delete(roomId);
         return;
     }
-    if(!room.players[0])return;
+    if (!room.players[0]) return;
     // 3. If the host left, give host status to the next person in line
     if (room.hostId === socket.id) {
         room.hostId = room.players[0].id;
@@ -337,11 +393,11 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
     if (isActiveDrawer) {
         io.to(roomId).emit("system:message", { type: "system", message: `The drawer left! Skipping turn...` });
         if (room.activeTimer) clearTimeout(room.activeTimer);
-        
+
         // Jump straight to the results screen
         room.gameState = "results";
         io.to(roomId).emit("room:state", getPublicRoom(room));
-        
+
         room.activeTimer = setTimeout(() => {
             startNextTurn(io, rooms, roomId);
         }, 5000);
@@ -352,15 +408,15 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
     if (room.gameState === "drawing") {
         // We have to re-evaluate the drawer because the array just changed!
         const newCurrentDrawer = room.players.find(p => !p.hasDrawn);
-        
-        const allGuessed = room.players.every(p => 
+
+        const allGuessed = room.players.every(p =>
             p.hasGuessed || (newCurrentDrawer && p.id === newCurrentDrawer.id)
         );
-        
+
         if (allGuessed && room.players.length > 1) {
             if (room.activeTimer) clearTimeout(room.activeTimer);
             if (newCurrentDrawer) newCurrentDrawer.hasDrawn = true;
-            
+
             room.gameState = "results";
             io.to(roomId).emit("room:state", getPublicRoom(room));
 
@@ -373,4 +429,41 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
 
     // 6. Normal update for everyone else
     io.to(roomId).emit("room:state", getPublicRoom(room));
+}
+
+function getLevenshteinDistance(a: string, b: string): number {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    // We only keep track of two rows: the previous one and the current one
+    let prevRow = new Array(b.length + 1);
+    let currRow = new Array(b.length + 1);
+
+    // Initialize the first row
+    for (let i = 0; i <= b.length; i++) {
+        prevRow[i] = i;
+    }
+
+    for (let i = 0; i < a.length; i++) {
+        // The first column of the current row is just the row number
+        currRow[0] = i + 1;
+
+        for (let j = 0; j < b.length; j++) {
+            const cost = a[i] === b[j] ? 0 : 1;
+            currRow[j + 1] = Math.min(
+                currRow[j] + 1,       // insertion
+                prevRow[j + 1] + 1,   // deletion
+                prevRow[j] + cost     // substitution
+            );
+        }
+
+        // Swap the arrays for the next iteration (avoids creating new arrays in memory)
+        const temp = prevRow;
+        prevRow = currRow;
+        currRow = temp;
+    }
+
+    // Because of the swap at the end of the loop, the answer is in prevRow
+    return prevRow[b.length];
 }
