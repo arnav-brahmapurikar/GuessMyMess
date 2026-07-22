@@ -6,7 +6,7 @@ export type Point = {
 
 export type Stroke = {
     id: string;
-    tool: "pen" | "eraser";
+    tool: Tool;
     color: string | null;
     width: number;
     points: Point[];
@@ -15,4 +15,4 @@ export type Stroke = {
 export type Tool =
     | "pen"
     | "eraser"
-    | "bucket";
+    | "fill";

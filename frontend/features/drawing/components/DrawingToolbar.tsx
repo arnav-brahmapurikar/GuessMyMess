@@ -13,6 +13,7 @@ import {
     Undo2,
     Redo2
 } from "lucide-react";
+import { Tool } from "../types";
 
 const colors = [
     "#000000",
@@ -26,8 +27,8 @@ const colors = [
 ];
 
 type Props = {
-    tool: "pen" | "eraser";
-    setTool: (tool: "pen" | "eraser") => void;
+    tool: Tool;
+    setTool: (tool: Tool) => void;
 
     color: string;
     setColor: (color: string) => void;
@@ -107,7 +108,8 @@ export default function DrawingToolbar({
                 </Toggle>
 
                 <Toggle
-                    disabled
+                    pressed={tool === "fill"}
+                    onPressedChange={() => setTool("fill")}
                     aria-label="Toggle Fill"
                 >
                     <PaintBucket size={18} className="opacity-50" />

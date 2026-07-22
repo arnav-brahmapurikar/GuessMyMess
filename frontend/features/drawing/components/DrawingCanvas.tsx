@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Tool, Stroke, Point } from "../types";
 import { Socket } from "socket.io-client";
 import DrawingToolbar from "./DrawingToolbar"; // <-- Import the toolbar!
+import executeFloodFill from "../algorithm/FloodFill";
 
 export default function DrawingCanvas({
     socket, 
@@ -15,7 +16,7 @@ export default function DrawingCanvas({
     isDrawer: boolean 
 }) {
     // 1. Moved State down from CanvasHolder
-    const [tool, setTool] = useState<"pen" | "eraser">("pen");
+    const [tool, setTool] = useState<Tool>("pen");
     const [color, setColor] = useState("#000000");
     const [width, setWidth] = useState(5);
     const strokes = useRef<Stroke[]>([]);
@@ -47,6 +48,12 @@ export default function DrawingCanvas({
             strokes.current.push(stroke);
             UndoStrokes.current = [];
             updateHistoryState();
+            if (stroke.tool === "fill") {
+                const ctx = canvasRef.current?.getContext("2d");
+                if (ctx) {
+                    executeFloodFill(ctx, stroke.points[0].x, stroke.points[0].y, stroke.color);
+                }
+            }
         });
 
         socket.on("stroke:undo", () => {
@@ -96,7 +103,8 @@ export default function DrawingCanvas({
     }, []);
 
     function drawLine(from: Point, to: Point, stroke: Stroke) {
-        const ctx = canvasRef.current!.getContext("2d")!;
+        const ctx = canvasRef.current!.getContext("2d");
+        if(!ctx)return ;
         ctx.beginPath();
         ctx.moveTo(from.x, from.y);
         ctx.lineTo(to.x, to.y);
@@ -161,6 +169,32 @@ export default function DrawingCanvas({
 
     function startDrawing(e: React.MouseEvent) {
         if (!isDrawer) return;
+        
+        const point = getPoint(e);
+        const ctx = canvasRef.current!.getContext("2d")!;
+        
+        // 🚀 NEW: Intercept the click if it's the Paint Bucket
+        if (tool === "fill") {
+            const fillStroke: Stroke = {
+                id: crypto.randomUUID(),
+                color,
+                width,
+                tool: "fill",
+                points: [point] // We only need the starting coordinate!
+            };
+            
+            // Execute locally instantly
+            executeFloodFill(ctx, point.x, point.y, color);
+            
+            // Save to history and broadcast to the room
+            strokes.current.push(fillStroke);
+            UndoStrokes.current = [];
+            updateHistoryState();
+            socket.emit("stroke:start", { stroke: fillStroke, roomId });
+            
+            // Return early so the draw() function doesn't fire
+            return;
+        }
         drawing.current = true;
         lastPoint.current = getPoint(e);
         UndoStrokes.current = [];
@@ -289,6 +323,10 @@ export default function DrawingCanvas({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         for (const stroke of strokes.current) {
+            if (stroke.tool === "fill") {
+                executeFloodFill(ctx, stroke.points[0].x, stroke.points[0].y, stroke.color!);
+                continue;
+            }
             if (stroke.tool === "eraser") {
                 ctx.globalCompositeOperation = "destination-out";
             } else {
