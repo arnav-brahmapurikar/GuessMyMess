@@ -57,6 +57,12 @@ export default function LobbyPanel({
         }
     };
 
+    const handleHintCountChange = (value: string) => {
+        if (isHost) {
+            socket.emit("lobby:update-hintCount", roomId, parseInt(value, 10));
+        }
+    };
+
     // -----------------------
 
     const handleInvite = () => {
@@ -136,13 +142,13 @@ export default function LobbyPanel({
                     onChange={setWordCount}
                     options={["2", "3", "4", "5"]}
                 /> */}
-                {/* <SettingRow
+                <SettingRow
                     label="Hints"
                     icon="❓"
-                    value={hints}
-                    onChange={setHints}
-                    options={["0", "1", "2", "3"]}
-                /> */}
+                    value={room.hintCount?.toString() || "0"}
+                    onChange={handleHintCountChange}
+                    options={["0", "1", "2", "3","4","5"]}
+                />
 
                 {/* <div className="mt-4 flex justify-between items-end mb-1">
                     <label className="text-white font-bold text-sm">Custom words</label>

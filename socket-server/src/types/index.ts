@@ -26,12 +26,15 @@ export type Room = {
     hostId : string,
     gameState: "lobby" | "choosing" | "drawing" | "results" | "round-start",
     strokes :Stroke[],
-    undoStrokes : Stroke[]
-    players : Player[]
+    undoStrokes : Stroke[],
+    players : Player[],
     currentRound : number ;
     maxRounds : number ;
     roundStart : number;
     correctWord : string;
     timer : number;
-    activeTimer? : NodeJS.Timeout | null
+    activeTimer? : NodeJS.Timeout | null;
+    hintCount: number;
+    currentHint?: string;
+    hintTimers?: NodeJS.Timeout[];
 }

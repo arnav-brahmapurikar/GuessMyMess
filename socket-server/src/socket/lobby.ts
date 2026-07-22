@@ -2,6 +2,7 @@ import type { Socket } from "socket.io"
 import type { Server } from "socket.io"
 import type { DefaultEventsMap } from "socket.io"
 import type { Room, Stroke } from "../types/index.js"
+import { getPublicRoom } from "./game.js"
 
 export function lobbyHandler(
     io: Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>,
@@ -16,14 +17,21 @@ export function lobbyHandler(
         if (!room) return;
         if (room.hostId !== socket.id) return;
         room.maxRounds = rounds
-        io.to(roomId).emit("room:state" ,room)
+        io.to(roomId).emit("room:state" ,getPublicRoom(room))
     })
     socket.on("lobby:update-timer", (roomId, timer) => {
         const room = rooms.get(roomId);
         if (!room) return;
         if (room.hostId !== socket.id) return;
         room.timer = timer
-        io.to(roomId).emit("room:state" ,room)
+        io.to(roomId).emit("room:state" ,getPublicRoom(room))
+    })
+    socket.on("lobby:update-hintCount" ,(roomId, hintCount) => {
+        const room = rooms.get(roomId);
+        if (!room) return;
+        if (room.hostId !== socket.id) return;
+        room.hintCount = Number(hintCount)
+        io.to(roomId).emit("room:state" ,getPublicRoom(room))
     })
     socket.on("lobby:kick", (roomId, pid) => {
         const room = rooms.get(roomId);

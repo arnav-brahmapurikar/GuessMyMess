@@ -33,5 +33,5 @@ export type Room = {
     roundStart : number;
     correctWord : string;
     timer : number;
-
+    hintCount : number;
 }

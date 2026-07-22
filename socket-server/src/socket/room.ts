@@ -12,31 +12,32 @@ export function roomHandler(
     >
 ) {
 
-    socket.on("room:create", (rounds, timer, name) => {
+    socket.on("room:create", (name) => {
         let code: string = "ABCDE"
         do {
             code = generateUppercaseAlphanumeric(5)
         } while (rooms.has(code))
         const room: Room = {
-            id : code,
-    gameState : "lobby",
-    hostId: socket.id,
-    undoStrokes: [],
-    timer,
-    strokes: [],
-    roundStart: 0,
-    players: [{
-        id: socket.id,
-        name,
-        points: 0,
-        hasDrawn: false,
-        hasGuessed: false,
-        pointsThisTurn : 0
-    }],
-    maxRounds: rounds,
-    currentRound: 0,
-    correctWord: "",
-};
+            id: code,
+            gameState: "lobby",
+            hostId: socket.id,
+            undoStrokes: [],
+            timer : 90,
+            strokes: [],
+            roundStart: 0,
+            players: [{
+                id: socket.id,
+                name,
+                points: 0,
+                hasDrawn: false,
+                hasGuessed: false,
+                pointsThisTurn: 0
+            }],
+            maxRounds: 3,
+            currentRound: 0,
+            correctWord: "",
+            hintCount:0
+        };
 
 rooms.set(code, room);
 socket.join(code)

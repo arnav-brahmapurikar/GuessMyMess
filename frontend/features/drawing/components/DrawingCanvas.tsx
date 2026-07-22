@@ -37,6 +37,22 @@ export default function DrawingCanvas({
     const lastPoint = useRef({ x:0, y:0 });
 
     useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        
+        // 1. Lock the internal resolution for everyone (e.g., standard 4:3 aspect ratio)
+        canvas.width = 800; 
+        canvas.height = 600;
+        
+        // 2. But let Tailwind CSS make it fluidly fit the screen visually
+        // (You already have className="w-full h-full" on your canvas, which does this perfectly!)
+
+        const ctx = canvas.getContext("2d")!;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+    }, []);
+
+    useEffect(() => {
         socket.on("canvas:state", ({strokes: serverStrokes, undoStrokes: ServerUndoStrokes}: {strokes: Stroke[], undoStrokes: Stroke[]}) => {
             strokes.current = serverStrokes;
             UndoStrokes.current = ServerUndoStrokes;
@@ -44,11 +60,23 @@ export default function DrawingCanvas({
             updateHistoryState();
         });
 
+       socket.on("canvas:clear", () => {
+            // 1. Empty the local history arrays
+            strokes.current = [];
+            UndoStrokes.current = [];
+            redrawCanvas();
+            updateHistoryState();
+        });
         socket.on("stroke:start", ({stroke}) => {
             strokes.current.push(stroke);
             UndoStrokes.current = [];
             updateHistoryState();
             if (stroke.tool === "fill") {
+                if (renderQueue.current.length > 0) {
+                    renderQueue.current.forEach(op => drawLine(op.from, op.to, op.stroke));
+                    renderQueue.current = [];
+                }
+
                 const ctx = canvasRef.current?.getContext("2d");
                 if (ctx) {
                     executeFloodFill(ctx, stroke.points[0].x, stroke.points[0].y, stroke.color);
@@ -99,8 +127,9 @@ export default function DrawingCanvas({
             socket.off("stroke:undo");
             socket.off("stroke:redo");  
             socket.off("canvas:state");
+            socket.off("canvas:clear");
         }
-    }, []);
+    }, [socket , roomId]);
 
     function drawLine(from: Point, to: Point, stroke: Stroke) {
         const ctx = canvasRef.current!.getContext("2d");

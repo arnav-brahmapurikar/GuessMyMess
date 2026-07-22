@@ -14,8 +14,6 @@ export default function HomePage() {
 function createRoom(name : string ) {
     socket.emit(
         "room:create",
-        3,
-        100,
         name
         
     );

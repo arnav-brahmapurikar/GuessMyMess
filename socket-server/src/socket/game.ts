@@ -7,11 +7,16 @@ import type { Room } from "../types/index.js";
 // ==========================================
 export function getPublicRoom(room: Room) {
     // 1. Strip out the dangerous activeTimer
-    const { activeTimer, ...publicRoom } = room;
+    const { activeTimer , currentHint , hintTimers , ...publicRoom } = room;
 
     // 2. If the game is in the drawing phase, mask the word
     if (publicRoom.gameState === "drawing" && publicRoom.correctWord) {
-        publicRoom.correctWord = publicRoom.correctWord.replace(/[a-zA-Z]/g, "_ ");
+        if(!currentHint){
+            publicRoom.correctWord = publicRoom.correctWord.replace(/[a-zA-Z]/g, "_ ");
+        }
+        else {
+            publicRoom.correctWord = currentHint;
+        }
     }
 
     return publicRoom;
@@ -20,8 +25,31 @@ export function getPublicRoom(room: Room) {
 // ==========================================
 // CORE GAME LOOP HELPERS
 // ==========================================
+const wordPool = [
+    // Easy: Animals
+    "lion", "tiger", "elephant", "giraffe", "penguin", "dolphin", "shark", 
+    "octopus", "kangaroo", "spider", "butterfly", "snake", "frog", "turtle", "owl",
 
-const wordPool = ["apple", "elephant", "guitar", "mountain", "ocean", "pizza", "astronaut", "castle"];
+    // Easy: Food
+    "pizza", "hamburger", "sushi", "ice cream", "banana", "watermelon", "donut", 
+    "taco", "sandwich", "broccoli", "chocolate", "pancake", "waffle", "cheese",
+
+    // Medium: Objects & Items
+    "guitar", "piano", "telescope", "microscope", "camera", "clock", "scissors", 
+    "toothbrush", "umbrella", "backpack", "compass", "magnet", "lantern", "helmet",
+
+    // Medium: Nature & Places
+    "volcano", "mountain", "ocean", "desert", "waterfall", "tornado", "hurricane", 
+    "island", "castle", "skyscraper", "hospital", "library", "cemetery", "bridge",
+
+    // Medium: People, Roles & Fantasy
+    "astronaut", "pirate", "ninja", "wizard", "detective", "doctor", "firefighter", 
+    "police", "vampire", "zombie", "alien", "mermaid", "knight", "king", "queen",
+
+    // Hard: Actions & Abstract Concepts
+    "gravity", "electricity", "shadow", "reflection", "nightmare", "dream", "time", 
+    "music", "love", "magic", "history", "future", "space", "wind", "echo"
+];
 
 export function startDrawingPhase(
     io: Server,
@@ -66,6 +94,8 @@ export function startDrawingPhase(
         }, 5000);
 
     }, roundDurationMs);
+
+    scheduleDynamicHints(io, room, roomId)
 }
 
 export function startNextTurn(
@@ -78,7 +108,10 @@ export function startNextTurn(
 
     // 1. Find who is drawing next
     let drawer = room.players.find(p => p.hasDrawn === false);
-
+    if(room.hintTimers){for(let i = 0 ; i < room.hintTimers?.length ; i++){
+        clearTimeout(room.hintTimers[i])
+    }}
+    room.currentHint = ""
     room.players.forEach(p => { p.points += p.pointsThisTurn; p.pointsThisTurn = 0; });
 
     // 2. If everyone has drawn, increment round
@@ -265,6 +298,10 @@ export function gameHandler(
 
                     if (currentDrawer) currentDrawer.hasDrawn = true;
 
+                    if(room.hintTimers){for(let i = 0 ; i < room.hintTimers?.length ; i++){
+                        clearTimeout(room.hintTimers[i])
+                    }}
+                    room.currentHint = ""
 
 
                     room.gameState = "results";
@@ -376,6 +413,9 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
 
     // 2. If the room is empty, delete it completely to stop memory leaks
     if (room.players.length === 0) {
+        if(room.hintTimers){for(let i = 0 ; i < room.hintTimers?.length ; i++){
+            clearTimeout(room.hintTimers[i])
+        }}
         if (room.activeTimer) clearTimeout(room.activeTimer);
         rooms.delete(roomId);
         return;
@@ -391,6 +431,10 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
 
     // 4. CRITICAL EDGE CASE: If the drawer left, end the turn immediately!
     if (isActiveDrawer) {
+
+        if(room.hintTimers){for(let i = 0 ; i < room.hintTimers?.length ; i++){
+            clearTimeout(room.hintTimers[i])
+        }}
         io.to(roomId).emit("system:message", { type: "system", message: `The drawer left! Skipping turn...` });
         if (room.activeTimer) clearTimeout(room.activeTimer);
 
@@ -416,7 +460,9 @@ export function handlePlayerLeave(io: Server, socket: Socket, rooms: Map<string,
         if (allGuessed && room.players.length > 1) {
             if (room.activeTimer) clearTimeout(room.activeTimer);
             if (newCurrentDrawer) newCurrentDrawer.hasDrawn = true;
-
+            if(room.hintTimers){for(let i = 0 ; i < room.hintTimers?.length ; i++){
+            clearTimeout(room.hintTimers[i])
+            }}
             room.gameState = "results";
             io.to(roomId).emit("room:state", getPublicRoom(room));
 
@@ -466,4 +512,60 @@ function getLevenshteinDistance(a: string, b: string): number {
 
     // Because of the swap at the end of the loop, the answer is in prevRow
     return prevRow[b.length];
+}
+
+function scheduleDynamicHints(io: Server, room: Room, roomId: string) {
+    const word = room.correctWord;
+    if (!word) return;
+
+    // 1. Initial setup
+    let hintArray: string[] = word.split("").map(char => char === " " ? " " : "_");
+    room.currentHint = hintArray.join(" ");
+    
+    // 2. Calculate limits so we never give away too much
+    // Count only actual letters, ignoring spaces
+    const lettersOnlyLength = word.replace(/ /g, "").length; 
+    
+    // Max hints is half the word length (e.g., 5 letters = max 2 hints)
+    const maxHintsAllowedByWord = Math.floor(lettersOnlyLength / 2);
+    
+    // Take whichever is smaller: the host's setting or the word's limit
+    const actualHintsToGive = Math.min(room.hintCount || 0, maxHintsAllowedByWord);
+
+    // If host set 0 hints, or the word is too short to give hints, stop here!
+    if (actualHintsToGive <= 0) return;
+
+    const revealRandomLetter = () => {
+        const hiddenIndices = hintArray
+            .map((char, index) => char === "_" ? index : -1)
+            .filter(i => i !== -1);
+
+        if (hiddenIndices.length > 0) {
+            const randomIndex = hiddenIndices[Math.floor(Math.random() * hiddenIndices.length)];
+            if (randomIndex === undefined) return;
+            
+            const letter = word[randomIndex];
+            if (!letter) return;
+            
+            hintArray[randomIndex] = letter;
+            room.currentHint = hintArray.join(" ");
+            
+            // Blast the updated hint to everyone seamlessly
+            io.to(roomId).emit("room:state", getPublicRoom(room));
+        }
+    };
+
+    // 3. Dynamic Timers Math (Halving the remaining time)
+    room.hintTimers = [];
+    const totalTimeMs = room.timer * 1000;
+    
+    for (let i = 1; i <= actualHintsToGive; i++) {
+        // i=1 -> 0.5  (50% of time passed)
+        // i=2 -> 0.75 (75% of time passed)
+        // i=3 -> 0.875 (87.5% of time passed)
+        const timeFraction = 1 - Math.pow(0.5, i); 
+        const triggerTime = totalTimeMs * timeFraction;
+        
+        room.hintTimers.push(setTimeout(revealRandomLetter, triggerTime));
+    }
 }
