@@ -5,6 +5,8 @@ import { Socket } from "socket.io-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Trophy, XCircle, CheckCircle2, Medal, Award } from "lucide-react";
+import { useEffect } from "react";
+import { soundManager } from "@/lib/sound";
 
 export default function ResultsPanel({
     socket,
@@ -23,6 +25,19 @@ export default function ResultsPanel({
 
     // Determine if the person viewing this screen is the host
     const isHost = room.hostId === socket.id;
+
+    useEffect(()=>{soundManager.stopAll();
+
+        // Small timeout buffer to let browser audio context settle
+        const soundTimeout = setTimeout(() => {
+            if (gameEnded) {
+                soundManager.play("gameEnd");
+            } else {
+                soundManager.play("result");
+            }
+        }, 50);
+
+        return () => clearTimeout(soundTimeout);},[gameEnded])
 
     return (
         <div className="flex-1 flex items-center justify-center p-6 bg-slate-950 font-mono relative overflow-hidden">

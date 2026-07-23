@@ -57,6 +57,7 @@ export function startDrawingPhase(
     roomId: string,
     word: string
 ) {
+    console.log(word)
     const room = rooms.get(roomId);
     if (!room) return;
 
@@ -147,10 +148,50 @@ export function startNextTurn(
     }, 500);
 
     // 2. Start the 10-second fallback timer as normal
+    // 2. Start the 10-second fallback timer
     room.activeTimer = setTimeout(() => {
-        room.gameState = "drawing";
+        const currentRoom = rooms.get(roomId);
+        if (!currentRoom) return;
+
+        if (currentRoom.gameState !== "choosing") return;
+
+        const currentDrawer = currentRoom.players.find(p => !p.hasDrawn);
+        if (!currentDrawer) {
+            startNextTurn(io, rooms, roomId);
+            return;
+        }
+
+        currentRoom.gameState = "drawing";
         const forcedWord = selectedChoices[Math.floor(Math.random() * 3)];
-        startDrawingPhase(io, rooms, roomId, forcedWord!);
+        currentRoom.correctWord = forcedWord!;
+        currentRoom.roundStart = Date.now();
+
+        // 1. Send the public state (hides choices, switches UI to drawing mode)
+        io.to(roomId).emit("room:state", getPublicRoom(currentRoom));
+
+        // 2. EXPLICITLY send the secret word to the drawer
+        io.to(currentDrawer.id).emit("game:you-are-drawing", forcedWord);
+
+        // 3. Notify the room
+        io.to(roomId).emit("system:message", {
+            type: "info",
+            message: `${currentDrawer.name} ran out of time! A word was auto-selected.`
+        });
+
+        // 4. Start the main drawing timer and dynamic hints
+        const roundDurationMs = currentRoom.timer * 1000;
+        currentRoom.activeTimer = setTimeout(() => {
+            currentDrawer.hasDrawn = true;
+            currentRoom.gameState = "results";
+            io.to(roomId).emit("room:state", getPublicRoom(currentRoom));
+
+            currentRoom.activeTimer = setTimeout(() => {
+                startNextTurn(io, rooms, roomId);
+            }, 5000);
+        }, roundDurationMs);
+
+        scheduleDynamicHints(io, currentRoom, roomId);
+
     }, 10000);
 }
 
@@ -208,7 +249,17 @@ export function gameHandler(
         const room = rooms.get(roomId);
         if (!room) return;
 
+        // If the 10s fallback already fired, gameState will be "drawing", 
+        // so this manual choice is ignored instead of breaking the round.
         if (room.gameState !== "choosing") return;
+
+        // Security check: Make sure it's actually the current drawer choosing!
+        const currentDrawer = room.players.find(p => !p.hasDrawn);
+        if (!currentDrawer || currentDrawer.id !== socket.id) return;
+
+        // Kill the 10-second fallback timer immediately
+        if (room.activeTimer) clearTimeout(room.activeTimer);
+
         startDrawingPhase(io, rooms, roomId, word);
     });
 
@@ -362,6 +413,11 @@ export function gameHandler(
 
         // Clear any lingering timers
         if (room.activeTimer) clearTimeout(room.activeTimer);
+        if(room.hintTimers){
+            for(let i = 0 ; i < room.hintTimers.length; i++){
+                clearTimeout(room.hintTimers[i]);
+            }
+        }
 
         // Reset the room back to a clean slate
         room.gameState = "lobby";

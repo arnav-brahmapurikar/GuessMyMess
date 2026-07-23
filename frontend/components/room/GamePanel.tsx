@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Room } from "@/types";
 import { Socket } from "socket.io-client";
 import { Clock, AlertCircle } from "lucide-react";
 import CanvasHolder from "@/features/drawing/components/CanvasHolder";
+import { soundManager } from "@/lib/sound";
 
 export default function GamePanel({
     socket,
@@ -23,24 +24,88 @@ export default function GamePanel({
     const [timeLeft, setTimeLeft] = useState(room.timer);
     const [secretWord, setSecretWord] = useState(room.correctWord); 
 
-    // 3. The Timer Loop
+    // Ref to ensure countdown audio only triggers ONCE at 10 seconds
+    const hasPlayedCountdownRef = useRef(false);
+
+    // Reset countdown flag when a new round starts
+    useEffect(() => {
+        hasPlayedCountdownRef.current = false;
+    }, [room.roundStart]);
+
+    // 3. High-Precision Phase-Aligned Timer Loop
     useEffect(() => {
         if (!room.roundStart) return;
         
+        // soundManager.stopAll();
+        if (isDrawer) {
+            soundManager.play("drawing");
+        }
+
         const endTime = room.roundStart + (room.timer * 1000);
 
-        const timerInterval = setInterval(() => {
-            const now = Date.now();
-            const remaining = Math.max(0, Math.ceil((endTime - now) / 1000));
-            setTimeLeft(remaining);
-            
-            if (remaining <= 0) {
-                clearInterval(timerInterval);
-            }
-        }, 1000);
+        // Immediate first calculation so the UI doesn't stutter on load
+        const now = Date.now();
+        const initialRemaining = Math.max(0, Math.ceil((endTime - now) / 1000));
+        setTimeLeft(initialRemaining);
 
-        return () => clearInterval(timerInterval);
-    }, [room.roundStart, room.timer]);
+        // Calculate exact milliseconds until the next clean second boundary (e.g. .000 ms)
+        const msUntilNextSecond = 1000 - ((endTime - now) % 1000);
+
+        let timerInterval: NodeJS.Timeout | null = null;
+
+        // Use setTimeout to snap right onto the clean second boundary
+        const alignmentTimeout = setTimeout(() => {
+            const currentNow = Date.now();
+            const currentRemaining = Math.max(0, Math.ceil((endTime - currentNow) / 1000));
+            setTimeLeft(currentRemaining);
+
+            if (currentRemaining <= 10 && !hasPlayedCountdownRef.current) {
+                hasPlayedCountdownRef.current = true;
+                soundManager.play("countdown");
+            }
+
+            if (currentRemaining <= 0) {
+                // soundManager.stopAll();
+                return;
+            }
+
+            // Now start the clean, perfectly synchronized 1-second interval
+            timerInterval = setInterval(() => {
+                const tickNow = Date.now();
+                const remaining = Math.max(0, Math.ceil((endTime - tickNow) / 1000));
+                setTimeLeft(remaining);
+
+                if (remaining === 10 && !hasPlayedCountdownRef.current) {
+                    hasPlayedCountdownRef.current = true;
+                    soundManager.play("countdown");
+                }
+
+                if (remaining <= 0) {
+                    if (timerInterval) clearInterval(timerInterval);
+                    // soundManager.stopAll();
+                }
+            }, 1000);
+
+        }, msUntilNextSecond);
+
+        // Visibility change sync handler
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                const syncNow = Date.now();
+                const remaining = Math.max(0, Math.ceil((endTime - syncNow) / 1000));
+                setTimeLeft(remaining);
+            }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            clearTimeout(alignmentTimeout);
+            if (timerInterval) clearInterval(timerInterval);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            // soundManager.stopAll();
+        };
+    }, [room.roundStart, room.timer, isDrawer]);
+
 
     // 4. The Word Unmasker
     useEffect(() => {
@@ -48,6 +113,8 @@ export default function GamePanel({
 
         const handleYouAreDrawing = (actualWord: string) => {
             setSecretWord(actualWord);
+            console.log("aaya")
+            soundManager.play("drawing");
         };
 
         socket.on("game:you-are-drawing", handleYouAreDrawing);
@@ -118,10 +185,6 @@ export default function GamePanel({
 
             {/* THE CANVAS AREA */}
             <div className="flex-1 relative cursor-crosshair bg-zinc-50 shadow-[inset_0px_0px_30px_rgba(0,0,0,0.15)]">
-                {/* 
-                  Make sure CanvasHolder itself has NO padding, NO borders, and NO background colors! 
-                  It should just be a transparent wrapper for the DrawingCanvas now.
-                */}
                 <CanvasHolder 
                     socket={socket} 
                     roomId={roomId} 

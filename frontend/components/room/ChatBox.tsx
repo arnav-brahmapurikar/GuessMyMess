@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Socket } from "socket.io-client";
+import { soundManager } from "@/lib/sound";
 
 type ChatMessage = {
     id: string;
@@ -28,6 +29,18 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
         if (!socket) return;
 
         const handleSystemMessage = (data: { type: any; message: string }) => {
+            if (data.message.includes("joined"))
+            soundManager.play("join");
+
+            if(data.message.includes("left"))
+                soundManager.play("leave")
+
+            if(data.message.includes("guessed"))
+                soundManager.play("correct")
+
+            if(data.message.includes("host"))
+                soundManager.play("hostChange")
+
             setMessages((prev) => [
                 ...prev,
                 {

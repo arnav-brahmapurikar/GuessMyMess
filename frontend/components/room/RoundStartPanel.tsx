@@ -1,8 +1,19 @@
 "use client";
 
+import { soundManager } from "@/lib/sound";
 import { Room } from "@/types";
+import { useEffect } from "react";
 
 export default function RoundStartPanel({ room }: { room: Room }) {
+
+    useEffect(()=>{
+        soundManager.play("roundStart")
+
+
+        return ()=>{
+        }
+    }, [])
+
     return (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 rounded-none border-4 border-slate-800 shadow-[8px_8px_0px_#0f172a] relative overflow-hidden font-mono">
             
