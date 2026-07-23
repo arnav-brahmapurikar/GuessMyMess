@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Tool, Stroke, Point } from "../types";
 import { Socket } from "socket.io-client";
-import DrawingToolbar from "./DrawingToolbar"; // <-- Import the toolbar!
+import DrawingToolbar from "./DrawingToolbar"; 
 import executeFloodFill from "../algorithm/FloodFill";
 
 export default function DrawingCanvas({
@@ -28,7 +28,6 @@ export default function DrawingCanvas({
     });
     const pendingPoints = useRef<Point[]>([]);
     const throttleTimeout = useRef<NodeJS.Timeout | null>(null);
-    //use queue to distribute drawing to reduce jitterness
     const renderQueue = useRef<{from: Point, to: Point, stroke: Stroke}[]>([]);
     const isRendering = useRef(false);
 
@@ -40,13 +39,9 @@ export default function DrawingCanvas({
         const canvas = canvasRef.current;
         if(!canvas) return;
         
-        // 1. Lock the internal resolution for everyone (e.g., standard 4:3 aspect ratio)
         canvas.width = 800; 
         canvas.height = 600;
         
-        // 2. But let Tailwind CSS make it fluidly fit the screen visually
-        // (You already have className="w-full h-full" on your canvas, which does this perfectly!)
-
         const ctx = canvas.getContext("2d")!;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -61,12 +56,12 @@ export default function DrawingCanvas({
         });
 
        socket.on("canvas:clear", () => {
-            // 1. Empty the local history arrays
             strokes.current = [];
             UndoStrokes.current = [];
             redrawCanvas();
             updateHistoryState();
         });
+        
         socket.on("stroke:start", ({stroke}) => {
             strokes.current.push(stroke);
             UndoStrokes.current = [];
@@ -92,7 +87,6 @@ export default function DrawingCanvas({
             applyRedo();
         });
 
-        // ✅ NEW: Expecting an array of points
         socket.on("stroke:update", ({strokeId, points}: {strokeId: string, points: Point[]}) => {
             const stroke = strokes.current.find(s => s.id === strokeId);
             if(!stroke) return;
@@ -102,23 +96,18 @@ export default function DrawingCanvas({
             for (const pt of points) {
                 if (!lastP) lastP = pt;
                 
-                // 1. Still save it to our main data array instantly
                 stroke.points.push(pt); 
-                
-                // 2. Instead of drawing it directly, push it to our animation queue!
                 renderQueue.current.push({ from: lastP, to: pt, stroke });
                 
                 lastP = pt; 
             }
 
-            // 3. Kick off the animation loop if it isn't already running
             if (!isRendering.current) {
                 isRendering.current = true;
                 requestAnimationFrame(processRenderQueue);
             }
         });
 
-        //  Explicitly ask for the canvas state now that we are ready to listen!
         socket.emit("canvas:request-state", roomId);
 
         return () => {
@@ -165,9 +154,6 @@ export default function DrawingCanvas({
             return;
         }
 
-        // THE MATH: A standard monitor runs at 60 Frames Per Second (~16ms per frame).
-        // Since our data arrives every 50ms, exactly 3 monitor frames will pass between each network update.
-        // By dividing the queue length by 3, we perfectly spread the drawing out across those 3 frames!
         const pointsToDraw = Math.max(1, Math.ceil(renderQueue.current.length / 3));
 
         for (let i = 0; i < pointsToDraw; i++) {
@@ -177,7 +163,6 @@ export default function DrawingCanvas({
             }
         }
 
-        // Tell the browser to run this again on the next frame
         requestAnimationFrame(processRenderQueue);
     }
 
@@ -202,26 +187,22 @@ export default function DrawingCanvas({
         const point = getPoint(e);
         const ctx = canvasRef.current!.getContext("2d")!;
         
-        // 🚀 NEW: Intercept the click if it's the Paint Bucket
         if (tool === "fill") {
             const fillStroke: Stroke = {
                 id: crypto.randomUUID(),
                 color,
                 width,
                 tool: "fill",
-                points: [point] // We only need the starting coordinate!
+                points: [point] 
             };
             
-            // Execute locally instantly
             executeFloodFill(ctx, point.x, point.y, color);
             
-            // Save to history and broadcast to the room
             strokes.current.push(fillStroke);
             UndoStrokes.current = [];
             updateHistoryState();
             socket.emit("stroke:start", { stroke: fillStroke, roomId });
             
-            // Return early so the draw() function doesn't fire
             return;
         }
         drawing.current = true;
@@ -247,10 +228,8 @@ export default function DrawingCanvas({
         currentStroke.current?.points.push(point);
         pendingPoints.current.push(point); 
         
-        // If a timer isn't already running, start one!
         if (!throttleTimeout.current) {
             throttleTimeout.current = setTimeout(() => {
-                // When 50ms passes, send the batch
                 if (pendingPoints.current.length > 0) {
                     socket.emit("stroke:update", { 
                         roomId: roomId, 
@@ -259,7 +238,6 @@ export default function DrawingCanvas({
                     });
                     pendingPoints.current = [];
                 }
-                // Clear the ref so the next mouse movement can start a new timer
                 throttleTimeout.current = null; 
             }, 50);
         }
@@ -284,13 +262,11 @@ export default function DrawingCanvas({
         drawing.current = false;
         if (currentStroke.current) {
             
-            // 1. Cancel the pending timer if it exists
             if (throttleTimeout.current) {
                 clearTimeout(throttleTimeout.current);
                 throttleTimeout.current = null;
             }
 
-            // 2. Flush any leftover points instantly
             if (pendingPoints.current.length > 0) {
                 socket.emit("stroke:update", { 
                     roomId: roomId, 
@@ -322,7 +298,6 @@ export default function DrawingCanvas({
         updateHistoryState();
     }
 
-    // 2. Uncommented and wired up the action functions
     function undo() {
         applyUndo();
         socket.emit("stroke:undo", {roomId});
@@ -338,7 +313,6 @@ export default function DrawingCanvas({
         UndoStrokes.current = [];
         redrawCanvas();
         updateHistoryState();
-        //  backend 
         socket.emit("canvas:clear", {roomId}); 
     }
 
@@ -379,9 +353,11 @@ export default function DrawingCanvas({
         <div className="relative h-full w-full">
             <canvas
                 ref={canvasRef}
-                className="w-full h-full bg-white rounded-2xl"
+                // Removed the rounded corners to fit inside the hard bezel, 
+                // and added touch-none so mobile players don't accidentally scroll the page!
+                className="w-full h-full bg-transparent touch-none"
                 style={{
-                    cursor: isDrawer ? getCursor(width, color, tool) : "default"
+                    cursor: isDrawer ? getCursor(width, color, tool) : "crosshair"
                 }}
                 onMouseDown={isDrawer ? startDrawing : undefined}
                 onMouseMove={isDrawer ? draw : undefined}
@@ -389,9 +365,20 @@ export default function DrawingCanvas({
                 onMouseLeave={isDrawer ? stopDrawing : undefined}
             />
 
-            {/* 3. Embedded the Toolbar perfectly inside the Canvas */}
+            {/* Embedded Toolbar Wrapper (Retro Control Dock) */}
             {isDrawer && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-max shadow-2xl rounded-2xl">
+                <div 
+                    className="
+                       absolute bottom-6 left-1/2 -translate-x-1/2 z-10 
+                        w-max 
+                        bg-slate-950 
+                        border border-slate-800
+                        border-t-2 border-t-cyan-500
+                        shadow-[0_10px_40px_rgba(6,182,212,0.25)]
+                        rounded-sm
+                        p-2
+                    "
+                >
                     <DrawingToolbar 
                         tool={tool}
                         setTool={setTool}
@@ -410,10 +397,11 @@ export default function DrawingCanvas({
 }
 
 function getCursor(width: number, color: string, tool: Tool) {
+    // Keep this SVG circle, but enforced a thicker 3px stroke to match the retro blocky style!
     const cursorSize = Math.max(14, width * 1.5);
     const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${cursorSize}" height="${cursorSize}">
-      <circle cx="${cursorSize / 2}" cy="${cursorSize / 2}" r="${cursorSize / 2 - 3}" fill="white" stroke="${tool === "eraser" ? "black" : color}" stroke-width="2" />
+      <circle cx="${cursorSize / 2}" cy="${cursorSize / 2}" r="${cursorSize / 2 - 3}" fill="white" stroke="${tool === "eraser" ? "black" : color}" stroke-width="3" />
     </svg>
     `;
     return `url("data:image/svg+xml;base64,${btoa(svg)}") ${cursorSize / 2} ${cursorSize / 2}, auto`;

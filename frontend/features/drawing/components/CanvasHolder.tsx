@@ -1,32 +1,37 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import DrawingCanvas from "./DrawingCanvas";
 import { Socket } from "socket.io-client";
 
 export default function CanvasHolder({
     roomId, 
     socket, 
-    isDrawer
+    isDrawer,
 }: {
-    roomId: string, 
-    socket: Socket, 
-    isDrawer: boolean
+    roomId: string;
+    socket: Socket;
+    isDrawer: boolean;
 }) {
     return (
-        <Card className="h-full rounded-3xl p-4 shadow-xl">
-            <CardContent className="h-full p-0 flex flex-col gap-4">
-                
-                {/* Drawing Area */}
-                <div className="flex-1 overflow-hidden rounded-2xl border bg-slate-50 relative">
-                    <DrawingCanvas
-                        socket={socket}
-                        roomId={roomId}
-                        isDrawer={isDrawer} 
-                    />
-                </div>
+        /* 
+          This wrapper is completely invisible! 
+          The borders and shadows are now handled by GamePanel.
+          We just need it to fill the available space.
+        */
+        <div className="w-full h-full relative">
+            
+            <DrawingCanvas
+                socket={socket}
+                roomId={roomId}
+                isDrawer={isDrawer} 
+            />
 
-            </CardContent>
-        </Card>
+            {/* 
+                NOTE: This is exactly where we will drop your Tool Dock 
+                (Color picker, brush size, clear button) later! 
+                Because it is 'relative', the dock can float nicely over the canvas.
+            */}
+
+        </div>
     );
 }

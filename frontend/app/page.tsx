@@ -4,82 +4,90 @@ import LandingCard from "@/components/landing/LandingCards";
 import FeatureCards from "@/components/landing/FeatureCards";
 import { useSocket } from "@/features/sockets/useSocket";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export default function HomePage() {
-
   const socket = useSocket();
-  const router = useRouter()
+  const router = useRouter();
 
-function createRoom(name : string ) {
-    socket.emit(
-        "room:create",
-        name
-        
-    );
-}
+  function createRoom(name: string) {
+    socket.emit("room:create", name);
+  }
 
-useEffect(() => {
+  useEffect(() => {
     const onConnect = () => {
-        console.log("Connected:", socket.id);
+      console.log("Connected:", socket.id);
     };
 
     socket.on("connect", onConnect);
 
     return () => {
-        socket.off("connect", onConnect);
+      socket.off("connect", onConnect);
     };
-}, [socket]);
+  }, [socket]);
 
-useEffect(() => {
-    // console.log(socket.id)
-    socket.on("room:state", ( room ) => {
+  useEffect(() => {
+    const handleRoomState = (room: { id: string }) => {
+      router.push(`/room/${room.id}`);
+    };
 
-        router.push(`/room/${room.id}`);
-
-    });
+    socket.on("room:state", handleRoomState);
 
     return () => {
-        socket.off("room:created");
+      socket.off("room:state", handleRoomState);
     };
-
-}, []);
+  }, [socket, router]);
 
   return (
     <main
       className="
-      min-h-screen
-      bg-linear-to-br
-      from-sky-500
-      via-indigo-600
-      to-violet-700
-      relative
-      overflow-hidden
+        min-h-screen
+        bg-slate-950 
+        text-slate-100
+        selection:bg-cyan-500 selection:text-slate-950
+        relative
+        overflow-hidden
       "
     >
-      {/* Background blobs */}
+      {/* 
+        Retro Synthwave Grid:
+        A sleek cyan glowing grid on a dark slate background 
+      */}
+      <div 
+        className="absolute inset-0 z-0 opacity-20"
+        style={{
+          backgroundImage: `
+            linear-gradient(rgba(6, 182, 212, 0.4) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(6, 182, 212, 0.4) 1px, transparent 1px)
+          `,
+          backgroundSize: '40px 40px',
+          backgroundPosition: 'center center'
+        }}
+      />
 
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute left-20 top-24 size-72 rounded-full bg-cyan-400/20 blur-3xl" />
-
-        <div className="absolute bottom-20 right-16 size-96 rounded-full bg-pink-400/20 blur-3xl" />
-
-        <div className="absolute top-1/2 left-1/2 size-125 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/10 blur-3xl" />
-      </div>
+      {/* 
+        Heavy CRT Monitor Vignette:
+        Fades the grid into pure black at the edges to make the center pop
+      */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_10%,#020617_100%)] z-0 pointer-events-none" />
 
       <section
         className="
-        relative
-        container
-        mx-auto
-        px-6
-        pt-16
+          relative
+          z-10
+          container
+          mx-auto
+          px-6
+          pt-20
+          pb-32
+          flex
+          flex-col
+          items-center
+          gap-12
         "
       >
         <Hero />
-
         <LandingCard roomCreate={createRoom} />
-
         <FeatureCards />
       </section>
     </main>
