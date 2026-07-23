@@ -12,10 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Socket } from "socket.io-client";
 
-// 1. Expand the types to match the backend!
 type ChatMessage = {
     id: string;
-    type: "system" | "chat" | "success" | "info" | "secret"; 
+    type: "system" | "chat" | "success" | "info" | "secret" | "warning"; 
     text: string;
     sender?: string;
 };
@@ -25,11 +24,9 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
     const [inputValue, setInputValue] = useState("");
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Listen for incoming socket events
     useEffect(() => {
         if (!socket) return;
 
-        // Handler for System Events (Start, Guessed it, Info)
         const handleSystemMessage = (data: { type: any; message: string }) => {
             setMessages((prev) => [
                 ...prev,
@@ -41,23 +38,19 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
             ]);
         };
 
-        // Handler for Normal & Secret Chats
         const handleChatMessage = (data: ChatMessage) => {
             setMessages((prev) => [...prev, data]);
         };
 
-        // Attach listeners
         socket.on("system:message", handleSystemMessage);
         socket.on("chat:message", handleChatMessage);
 
-        // Cleanup
         return () => {
             socket.off("system:message", handleSystemMessage);
             socket.off("chat:message", handleChatMessage);
         };
     }, [socket]);
 
-    // Auto-scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -68,51 +61,56 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
         e.preventDefault();
         if (!inputValue.trim()) return;
 
-        // FIXED: Pass the room ID along with the message!
         socket.emit("chat:send", room, inputValue.trim());
-        
-        // FIXED: Clear the input after sending
         setInputValue("");
     };
 
     return (
-        <Card className="h-full rounded-3xl shadow-xl border-4 border-white/70 flex flex-col overflow-hidden bg-white/95">
-            <CardHeader className="py-4 border-b">
-                <CardTitle className="text-lg font-bold text-gray-800">
-                    💬 Chat & Guesses
+        <Card className="h-full rounded-none border-2 border-slate-800 flex flex-col overflow-hidden bg-slate-900 shadow-[4px_4px_0px_#0f172a]">
+            
+            {/* RETRO HEADER */}
+            <CardHeader className="py-4 border-b-2 border-slate-800 bg-slate-950">
+                <CardTitle className="text-sm font-mono font-black uppercase tracking-widest text-pink-400 flex items-center gap-2">
+                    <span className="w-2 h-4 bg-pink-500 animate-pulse block"></span>
+                    CHAT_LOG
                 </CardTitle>
             </CardHeader>
 
+            {/* MESSAGES AREA */}
             <CardContent
                 ref={scrollRef}
-                className="flex-1 p-4 space-y-2 overflow-y-auto"
+                className="flex-1 p-4 space-y-3 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900"
             >
                 {messages.length === 0 && (
-                    <div className="text-sm text-gray-400 text-center italic mt-10">
-                        No messages yet. Waiting for players...
+                    <div className="text-xs font-mono text-slate-600 text-center uppercase tracking-widest mt-10">
+                        AWAITING INCOMING TRANSMISSIONS...
                     </div>
                 )}
 
                 {messages.map((msg) => {
-                    // Dynamic styling based on the message type
-                    let styleClass = "text-gray-800"; // Normal chat
+                    let styleClass = "text-slate-300 font-mono text-sm"; // Normal chat
                     let prefix = "";
 
+                    // Arcade-style message formatting
                     if (msg.type === "success") {
-                        styleClass = "text-green-700 bg-green-100 font-bold p-1.5 rounded-md w-full block";
+                        styleClass = "text-emerald-400 bg-emerald-950/40 border border-emerald-900 font-bold p-2 w-full block shadow-[2px_2px_0px_rgba(4,120,87,0.3)] font-mono text-sm uppercase tracking-wide";
                     } else if (msg.type === "secret") {
-                        styleClass = "text-yellow-700 bg-yellow-50 border border-yellow-200 italic p-1.5 rounded-md w-full block";
-                        prefix = "🤫 [Secret] ";
+                        styleClass = "text-yellow-400 bg-yellow-950/40 border border-yellow-900/50 p-2 w-full block font-mono text-sm";
+                        prefix = "[SECRET] ";
+                    } else if (msg.type === "warning") {
+                        styleClass = "text-orange-400 bg-orange-950/40 border border-orange-900/50 p-2 w-full block font-mono text-sm";
                     } else if (msg.type === "info" || msg.type === "system") {
-                        styleClass = "text-blue-600 bg-blue-50 italic p-1.5 rounded-md w-full block text-center text-xs font-semibold";
+                        styleClass = "text-cyan-400 border border-cyan-900/30 bg-cyan-950/20 p-2 w-full block text-center text-xs font-mono uppercase tracking-widest";
                     }
 
                     return (
-                        <div key={msg.id} className={`text-sm ${styleClass}`}>
+                        <div key={msg.id} className={styleClass}>
                             {msg.sender ? (
                                 <span>
-                                    <span className="font-bold">{prefix}{msg.sender}: </span>
-                                    {msg.text}
+                                    <span className="font-bold text-slate-500">{prefix}{msg.sender}: </span>
+                                    <span className={msg.type === "success" ? "text-emerald-400" : "text-slate-200"}>
+                                        {msg.text}
+                                    </span>
                                 </span>
                             ) : (
                                 <span>{msg.text}</span>
@@ -122,20 +120,38 @@ export default function ChatBox({ room, socket }: { room: string; socket: Socket
                 })}
             </CardContent>
 
-            <CardFooter className="p-3 border-t bg-gray-50">
+            {/* TERMINAL INPUT */}
+            <CardFooter className="p-4 border-t-2 border-slate-800 bg-slate-950">
                 <form 
                     onSubmit={handleSendMessage} 
-                    className="flex w-full gap-2"
+                    className="flex w-full gap-3"
                 >
                     <Input
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
-                        placeholder="Type your guess..."
-                        className="flex-1 bg-white"
+                        placeholder="ENTER GUESS..."
+                        className="
+                            flex-1 bg-slate-900 
+                            border-2 border-slate-700 
+                            focus-visible:border-pink-400 focus-visible:ring-0
+                            text-slate-100 font-mono text-sm
+                            rounded-none
+                            placeholder:text-slate-600
+                        "
                         autoComplete="off"
                     />
-                    <Button type="submit" className="font-bold">
-                        Send
+                    <Button 
+                        type="submit" 
+                        className="
+                            bg-pink-600 hover:bg-pink-500 text-white 
+                            font-mono uppercase font-bold tracking-widest
+                            rounded-none border-2 border-pink-400
+                            shadow-[4px_4px_0px_#831843] hover:shadow-[4px_4px_0px_#831843]
+                            active:shadow-[0px_0px_0px_#831843] active:translate-y-1 active:translate-x-1
+                            transition-all
+                        "
+                    >
+                        SEND
                     </Button>
                 </form>
             </CardFooter>
